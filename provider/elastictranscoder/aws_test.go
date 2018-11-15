@@ -135,7 +135,7 @@ func TestAWSTranscode(t *testing.T) {
 		},
 	}
 	source := "dir/file.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output-720p.mp4",
 			Preset: db.PresetMap{
@@ -171,12 +171,12 @@ func TestAWSTranscode(t *testing.T) {
 		},
 	}
 
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:              "job-123",
 		SourceMedia:     source,
 		Outputs:         outputs,
-		StreamingParams: provider.StreamingParams{},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestAWSTranscodeAdaptiveStreaming(t *testing.T) {
 		},
 	}
 	source := "dir/file.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_360p_hls/video.m3u8",
 			Preset: db.PresetMap{
@@ -265,16 +265,16 @@ func TestAWSTranscodeAdaptiveStreaming(t *testing.T) {
 		},
 	}
 
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:          "job-123",
 		SourceMedia: source,
 		Outputs:     outputs,
-		StreamingParams: provider.StreamingParams{
+		StreamingParams: db.StreamingParams{
 			PlaylistFileName: "video.m3u8",
 			Protocol:         "asdf",
 			SegmentDuration:  3,
 		},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestAWSTranscodeAdaptiveAndNonAdaptiveStreaming(t *testing.T) {
 		},
 	}
 	source := "dir/file.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "hls/output_hls_360p/video.m3u8",
 			Preset: db.PresetMap{
@@ -385,16 +385,16 @@ func TestAWSTranscodeAdaptiveAndNonAdaptiveStreaming(t *testing.T) {
 		},
 	}
 
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:          "job-123",
 		SourceMedia: source,
 		Outputs:     outputs,
-		StreamingParams: provider.StreamingParams{
+		StreamingParams: db.StreamingParams{
 			PlaylistFileName: "hls/video.m3u8",
 			Protocol:         "asdf",
 			SegmentDuration:  3,
 		},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestAWSTranscodeNormalizedSource(t *testing.T) {
 		},
 	}
 	source := "s3://bucketname/some/dir/with/subdir/file.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.mp4",
 			Preset: db.PresetMap{
@@ -483,12 +483,12 @@ func TestAWSTranscodeNormalizedSource(t *testing.T) {
 			},
 		},
 	}
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:              "job-1",
 		SourceMedia:     source,
 		Outputs:         outputs,
-		StreamingParams: provider.StreamingParams{},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-1"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestAWSTranscodePresetNotFound(t *testing.T) {
 		},
 	}
 	source := "s3://bucketname/some/dir/with/subdir/file.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.mp4",
 			Preset: db.PresetMap{
@@ -550,12 +550,12 @@ func TestAWSTranscodePresetNotFound(t *testing.T) {
 			},
 		},
 	}
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:              "job-123",
 		SourceMedia:     source,
 		Outputs:         outputs,
-		StreamingParams: provider.StreamingParams{},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if err != provider.ErrPresetMapNotFound {
 		t.Errorf("Wrong error returned. Want %#v. Got %#v", provider.ErrPresetMapNotFound, err)
 	}
@@ -578,11 +578,11 @@ func TestAWSTranscodeAWSFailureInAmazon(t *testing.T) {
 		},
 	}
 	source := "dir/file.mp4"
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:              "job-123",
 		SourceMedia:     source,
-		StreamingParams: provider.StreamingParams{},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if jobStatus != nil {
 		t.Errorf("Got unexpected non-nil status: %#v", jobStatus)
 	}
@@ -602,7 +602,7 @@ func TestAWSJobStatus(t *testing.T) {
 			PipelineID:      "mypipeline",
 		},
 	}
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.mp4",
 			Preset: db.PresetMap{
@@ -638,16 +638,16 @@ func TestAWSJobStatus(t *testing.T) {
 		},
 	}
 	source := "dir/file.mov"
-	transcodeProfile := provider.TranscodeProfile{
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:          "job-123",
 		SourceMedia: source,
 		Outputs:     outputs,
-		StreamingParams: provider.StreamingParams{
+		StreamingParams: db.StreamingParams{
 			PlaylistFileName: "hls/index.m3u8",
 			SegmentDuration:  3,
 			Protocol:         "hls",
 		},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -658,6 +658,7 @@ func TestAWSJobStatus(t *testing.T) {
 	expectedJobStatus := provider.JobStatus{
 		ProviderJobID: jobStatus.ProviderJobID,
 		Status:        provider.StatusFinished,
+		StatusMessage: "it's finished!",
 		Progress:      100,
 		ProviderStatus: map[string]interface{}{
 			"outputs": map[string]interface{}{
@@ -711,7 +712,7 @@ func TestAWSJobStatusNoDetectedProperties(t *testing.T) {
 			PipelineID:      "mypipeline",
 		},
 	}
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.mp4",
 			Preset: db.PresetMap{
@@ -735,13 +736,12 @@ func TestAWSJobStatusNoDetectedProperties(t *testing.T) {
 			},
 		},
 	}
-	source := "dir/file.mov"
-	transcodeProfile := provider.TranscodeProfile{
-		SourceMedia:     source,
+	jobStatus, err := prov.Transcode(&db.Job{
+		ID:              "job-123",
+		SourceMedia:     "dir/file.mov",
 		Outputs:         outputs,
-		StreamingParams: provider.StreamingParams{},
-	}
-	jobStatus, err := prov.Transcode(&db.Job{ID: "job-123"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -753,6 +753,7 @@ func TestAWSJobStatusNoDetectedProperties(t *testing.T) {
 	expectedJobStatus := provider.JobStatus{
 		ProviderJobID: jobStatus.ProviderJobID,
 		Status:        provider.StatusFinished,
+		StatusMessage: "it's finished!",
 		Progress:      100,
 		ProviderStatus: map[string]interface{}{
 			"outputs": map[string]interface{}{
@@ -798,13 +799,13 @@ func TestAWSCreatePreset(t *testing.T) {
 	}
 
 	inputPreset := db.Preset{
-		Name:         "preset_name",
-		Description:  "description here",
-		Container:    "mp4",
-		Profile:      "Main",
-		ProfileLevel: "3.1",
-		RateControl:  "VBR",
+		Name:        "preset_name",
+		Description: "description here",
+		Container:   "mp4",
+		RateControl: "VBR",
 		Video: db.VideoPreset{
+			Profile:       "Main",
+			ProfileLevel:  "3.1",
 			Height:        "720",
 			Codec:         "h264",
 			Bitrate:       "2500000",
@@ -844,11 +845,11 @@ func TestCreateVideoPreset(t *testing.T) {
 		{
 			"H.264 preset",
 			db.Preset{
-				Container:    "m3u8",
-				Profile:      "Main",
-				ProfileLevel: "3.1",
+				Container: "m3u8",
 				Video: db.VideoPreset{
-					Codec: "h264",
+					Profile:      "Main",
+					ProfileLevel: "3.1",
+					Codec:        "h264",
 				},
 			},
 			&elastictranscoder.VideoParameters{
@@ -919,12 +920,12 @@ func TestCreateVideoPreset(t *testing.T) {
 		{
 			"MP4 preset",
 			db.Preset{
-				Container:    "mp4",
-				Profile:      "Main",
-				ProfileLevel: "3.1",
+				Container: "mp4",
 				Video: db.VideoPreset{
-					Codec:   "h264",
-					GopSize: "90",
+					Profile:      "Main",
+					ProfileLevel: "3.1",
+					Codec:        "h264",
+					GopSize:      "90",
 				},
 			},
 			&elastictranscoder.VideoParameters{

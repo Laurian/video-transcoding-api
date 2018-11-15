@@ -57,15 +57,15 @@ type awsProvider struct {
 	config *config.ElasticTranscoder
 }
 
-func (p *awsProvider) Transcode(job *db.Job, transcodeProfile provider.TranscodeProfile) (*provider.JobStatus, error) {
-	var adaptiveStreamingOutputs []provider.TranscodeOutput
-	source := p.normalizeSource(transcodeProfile.SourceMedia)
+func (p *awsProvider) Transcode(job *db.Job) (*provider.JobStatus, error) {
+	var adaptiveStreamingOutputs []db.TranscodeOutput
+	source := p.normalizeSource(job.SourceMedia)
 	params := elastictranscoder.CreateJobInput{
 		PipelineId: aws.String(p.config.PipelineID),
 		Input:      &elastictranscoder.JobInput{Key: aws.String(source)},
 	}
-	params.Outputs = make([]*elastictranscoder.CreateJobOutput, len(transcodeProfile.Outputs))
-	for i, output := range transcodeProfile.Outputs {
+	params.Outputs = make([]*elastictranscoder.CreateJobOutput, len(job.Outputs))
+	for i, output := range job.Outputs {
 		presetID, ok := output.Preset.ProviderMapping[Name]
 		if !ok {
 			return nil, provider.ErrPresetMapNotFound
@@ -90,12 +90,12 @@ func (p *awsProvider) Transcode(job *db.Job, transcodeProfile provider.Transcode
 			Key:      p.outputKey(job, output.FileName, isAdaptiveStreamingPreset),
 		}
 		if isAdaptiveStreamingPreset {
-			params.Outputs[i].SegmentDuration = aws.String(strconv.Itoa(int(transcodeProfile.StreamingParams.SegmentDuration)))
+			params.Outputs[i].SegmentDuration = aws.String(strconv.Itoa(int(job.StreamingParams.SegmentDuration)))
 		}
 	}
 
 	if len(adaptiveStreamingOutputs) > 0 {
-		playlistFileName := transcodeProfile.StreamingParams.PlaylistFileName
+		playlistFileName := job.StreamingParams.PlaylistFileName
 		playlistFileName = strings.TrimRight(playlistFileName, filepath.Ext(playlistFileName))
 		jobPlaylist := elastictranscoder.CreateJobPlaylist{
 			Format: aws.String(hlsPlayList),
@@ -145,8 +145,8 @@ func (p *awsProvider) createVideoPreset(preset db.Preset) *elastictranscoder.Vid
 		Codec:              &preset.Video.Codec,
 		KeyframesMaxDist:   &preset.Video.GopSize,
 		CodecOptions: map[string]*string{
-			"Profile":            aws.String(strings.ToLower(preset.Profile)),
-			"Level":              &preset.ProfileLevel,
+			"Profile":            aws.String(strings.ToLower(preset.Video.Profile)),
+			"Level":              &preset.Video.ProfileLevel,
 			"MaxReferenceFrames": aws.String("2"),
 		},
 	}
@@ -285,9 +285,18 @@ func (p *awsProvider) JobStatus(job *db.Job) (*provider.JobStatus, error) {
 			Width:    aws.Int64Value(resp.Job.Input.DetectedProperties.Width),
 		}
 	}
+	statusMessage := ""
+	if len(resp.Job.Outputs) > 0 {
+		statusMessage = aws.StringValue(resp.Job.Outputs[0].StatusDetail)
+		if strings.Contains(statusMessage, ":") {
+			errorMessage := strings.SplitN(statusMessage, ":", 2)[1]
+			statusMessage = strings.TrimSpace(errorMessage)
+		}
+	}
 	return &provider.JobStatus{
 		ProviderJobID:  aws.StringValue(resp.Job.Id),
 		Status:         p.statusMap(aws.StringValue(resp.Job.Status)),
+		StatusMessage:  statusMessage,
 		Progress:       completedJobs / float64(totalJobs) * 100,
 		ProviderStatus: map[string]interface{}{"outputs": outputs},
 		SourceInfo:     sourceInfo,
@@ -399,7 +408,10 @@ func elasticTranscoderFactory(cfg *config.Config) (provider.TranscodingProvider,
 	if region == "" {
 		region = defaultAWSRegion
 	}
-	awsSession := session.New(aws.NewConfig().WithCredentials(creds).WithRegion(region))
+	awsSession, err := session.NewSession(aws.NewConfig().WithCredentials(creds).WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
 	return &awsProvider{
 		c:      elastictranscoder.New(awsSession),
 		config: cfg.ElasticTranscoder,

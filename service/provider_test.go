@@ -9,12 +9,12 @@ import (
 
 	"github.com/NYTimes/gizmo/server"
 	"github.com/NYTimes/video-transcoding-api/config"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 func TestListProviders(t *testing.T) {
 	srvr := server.NewSimpleServer(&server.Config{RouterType: "fast"})
-	service, err := NewTranscodingService(&config.Config{}, logrus.New())
+	service, err := NewTranscodingService(&config.Config{Server: &server.Config{}}, logrus.New())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestListProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := []string{"fake"}
+	expected := []string{"fake", "zencoder"}
 	if !reflect.DeepEqual(providers, expected) {
 		t.Errorf("listProviders: wrong body. Want %#v. Got %#v", expected, providers)
 	}
@@ -68,7 +68,7 @@ func TestGetProvider(t *testing.T) {
 	}
 	for _, test := range tests {
 		srvr := server.NewSimpleServer(&server.Config{RouterType: "fast"})
-		service, err := NewTranscodingService(&config.Config{}, logrus.New())
+		service, err := NewTranscodingService(&config.Config{Server: &server.Config{}}, logrus.New())
 		if err != nil {
 			t.Fatal(err)
 		}

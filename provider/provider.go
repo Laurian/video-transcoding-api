@@ -30,7 +30,7 @@ var (
 // Job. The underlying provider should handle the profileSpec as desired (it
 // might be a JSON, or an XML, or anything else.
 type TranscodingProvider interface {
-	Transcode(*db.Job, TranscodeProfile) (*JobStatus, error)
+	Transcode(*db.Job) (*JobStatus, error)
 	JobStatus(*db.Job) (*JobStatus, error)
 	CancelJob(id string) error
 	CreatePreset(db.Preset) (string, error)
@@ -94,6 +94,7 @@ type OutputFile struct {
 	VideoCodec string `json:"videoCodec"`
 	Height     int64  `json:"height"`
 	Width      int64  `json:"width"`
+	FileSize   int64  `json:"fileSize"`
 }
 
 // SourceInfo contains information about media transcoded using the Transcoding
@@ -108,27 +109,6 @@ type SourceInfo struct {
 
 	// Codec used for video medias
 	VideoCodec string `json:"videoCodec,omitempty"`
-}
-
-// StreamingParams contains all parameters related to the streaming protocol used.
-type StreamingParams struct {
-	PlaylistFileName string `json:"playlistFileName,omitempty"`
-	SegmentDuration  uint   `json:"segmentDuration,omitempty"`
-	Protocol         string `json:"protocol,omitempty"`
-}
-
-// TranscodeProfile defines the set of inputs necessary for running a transcoding job.
-type TranscodeProfile struct {
-	SourceMedia     string
-	Outputs         []TranscodeOutput
-	StreamingParams StreamingParams
-}
-
-// TranscodeOutput represents a transcoding output. It's a combination of the
-// preset and the output file name.
-type TranscodeOutput struct {
-	Preset   db.PresetMap
-	FileName string
 }
 
 // Status is the status of a transcoding job.

@@ -14,7 +14,7 @@ type Job struct {
 	// a new Job.
 	//
 	// unique: true
-	ID string `redis-hash:"-" json:"jobId"`
+	ID string `redis-hash:"jobID" json:"jobId"`
 
 	// name of the provider
 	//
@@ -36,6 +36,30 @@ type Job struct {
 	//
 	// required: true
 	CreationTime time.Time `redis-hash:"creationTime" json:"creationTime"`
+
+	// Source of the job
+	//
+	// required: true
+	SourceMedia string `redis-hash:"source" json:"source"`
+
+	// Output list of the given job
+	//
+	// required: true
+	Outputs []TranscodeOutput `redis-hash:"-" json:"outputs"`
+}
+
+// TranscodeOutput represents a transcoding output. It's a combination of the
+// preset and the output file name.
+type TranscodeOutput struct {
+	// Presetmap for the output
+	//
+	// required: true
+	Preset PresetMap `redis-hash:"presetmap,expand" json:"presetmap"`
+
+	// Filename for the output
+	//
+	// required: true
+	FileName string `redis-hash:"filename" json:"filename"`
 }
 
 // StreamingParams represents the params necessary to create Adaptive Streaming jobs
@@ -51,6 +75,10 @@ type StreamingParams struct {
 	//
 	// required: true
 	Protocol string `redis-hash:"protocol" json:"protocol"`
+
+	// the playlist file name
+	// required: true
+	PlaylistFileName string `redis-hash:"playlistFileName" json:"playlistFileName,omitempty"`
 }
 
 // LocalPreset is a struct to persist encoding configurations. Some providers don't have
@@ -69,20 +97,21 @@ type LocalPreset struct {
 	Preset Preset `redis-hash:"preset,expand" json:"preset"`
 }
 
-// Preset define the set of parameters of a given preset
+// Preset defines the set of parameters of a given preset
 type Preset struct {
-	Name         string      `json:"name,omitempty" redis-hash:"name"`
-	Description  string      `json:"description,omitempty" redis-hash:"description,omitempty"`
-	Container    string      `json:"container,omitempty" redis-hash:"container,omitempty"`
-	Profile      string      `json:"profile,omitempty" redis-hash:"profile,omitempty"`
-	ProfileLevel string      `json:"profileLevel,omitempty" redis-hash:"profilelevel,omitempty"`
-	RateControl  string      `json:"rateControl,omitempty" redis-hash:"ratecontrol,omitempty"`
-	Video        VideoPreset `json:"video" redis-hash:"video,expand"`
-	Audio        AudioPreset `json:"audio" redis-hash:"audio,expand"`
+	Name        string      `json:"name,omitempty" redis-hash:"name"`
+	Description string      `json:"description,omitempty" redis-hash:"description,omitempty"`
+	Container   string      `json:"container,omitempty" redis-hash:"container,omitempty"`
+	RateControl string      `json:"rateControl,omitempty" redis-hash:"ratecontrol,omitempty"`
+	TwoPass     bool        `json:"twoPass" redis-hash:"twopass"`
+	Video       VideoPreset `json:"video" redis-hash:"video,expand"`
+	Audio       AudioPreset `json:"audio" redis-hash:"audio,expand"`
 }
 
-// VideoPreset define the set of parameters for video on a given preset
+// VideoPreset defines the set of parameters for video on a given preset
 type VideoPreset struct {
+	Profile       string `json:"profile,omitempty" redis-hash:"profile,omitempty"`
+	ProfileLevel  string `json:"profileLevel,omitempty" redis-hash:"profilelevel,omitempty"`
 	Width         string `json:"width,omitempty" redis-hash:"width,omitempty"`
 	Height        string `json:"height,omitempty" redis-hash:"height,omitempty"`
 	Codec         string `json:"codec,omitempty" redis-hash:"codec,omitempty"`
@@ -92,7 +121,7 @@ type VideoPreset struct {
 	InterlaceMode string `json:"interlaceMode,omitempty" redis-hash:"interlacemode,omitempty"`
 }
 
-// AudioPreset define the set of parameters for audio on a given preset
+// AudioPreset defines the set of parameters for audio on a given preset
 type AudioPreset struct {
 	Codec   string `json:"codec,omitempty" redis-hash:"codec,omitempty"`
 	Bitrate string `json:"bitrate,omitempty" redis-hash:"bitrate,omitempty"`
@@ -110,7 +139,7 @@ type PresetMap struct {
 	//
 	// unique: true
 	// required: true
-	Name string `redis-hash:"-" json:"name"`
+	Name string `redis-hash:"presetmap_name" json:"name"`
 
 	// mapping of provider name to provider's internal preset id.
 	//

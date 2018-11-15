@@ -75,7 +75,9 @@ func (s *TranscodingService) newPreset(r *http.Request) swagger.GizmoJSONRespons
 	defer r.Body.Close()
 	var input newPresetInput
 	var output newPresetOutputs
-	var presetMap db.PresetMap
+	var presetMap *db.PresetMap
+	var providers []string
+	var shouldCreatePresetMap bool
 
 	respData, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -86,11 +88,36 @@ func (s *TranscodingService) newPreset(r *http.Request) swagger.GizmoJSONRespons
 	if err != nil {
 		return swagger.NewErrorResponse(err)
 	}
-	presetMap.OutputOpts = input.OutputOptions
 
-	presetMap.ProviderMapping = make(map[string]string)
 	output.Results = make(map[string]newPresetOutput)
-	for _, p := range input.Providers {
+
+	// Sometimes we try to create a new preset in a new provider but we already
+	// have the PresetMap stored. We want to update the PresetMap in such cases.
+	presetMap, err = s.db.GetPresetMap(input.Preset.Name)
+	if err == db.ErrPresetMapNotFound {
+		presetMap = &db.PresetMap{Name: input.Preset.Name}
+		presetMap.OutputOpts = input.OutputOptions
+		presetMap.OutputOpts.Extension = input.Preset.Container
+		presetMap.ProviderMapping = make(map[string]string)
+		if err = presetMap.OutputOpts.Validate(); err != nil {
+			return newInvalidPresetResponse(fmt.Errorf("invalid outputOptions: %s", err))
+		}
+		shouldCreatePresetMap = true
+		providers = input.Providers
+	} else if err != nil {
+		return swagger.NewErrorResponse(err)
+	} else {
+		// If we already have a PresetMap for this preset, we just need to create the
+		// preset on the providers that are not mapped yet.
+		providers = s.getMissingProviders(input.Providers, presetMap.ProviderMapping)
+
+		// We also want to add the existent presets on the result.
+		for provider, presetID := range presetMap.ProviderMapping {
+			output.Results[provider] = newPresetOutput{PresetID: presetID, Error: ""}
+		}
+	}
+
+	for _, p := range providers {
 		providerFactory, ierr := provider.GetProviderFactory(p)
 		if ierr != nil {
 			output.Results[p] = newPresetOutput{PresetID: "", Error: "getting factory: " + ierr.Error()}
@@ -111,19 +138,16 @@ func (s *TranscodingService) newPreset(r *http.Request) swagger.GizmoJSONRespons
 	}
 
 	status := http.StatusOK
-	output.PresetMap = ""
 	if len(presetMap.ProviderMapping) > 0 {
-		presetMap.Name = input.Preset.Name
-		presetMap.OutputOpts.Extension = input.Preset.Container
-
-		if err = presetMap.OutputOpts.Validate(); err != nil {
-			return newInvalidPresetResponse(fmt.Errorf("invalid outputOptions: %s", err))
+		if shouldCreatePresetMap {
+			err = s.db.CreatePresetMap(presetMap)
+		} else {
+			err = s.db.UpdatePresetMap(presetMap)
 		}
-
-		err = s.db.CreatePresetMap(&presetMap)
-		if err == nil {
-			output.PresetMap = presetMap.Name
+		if err != nil {
+			return newInvalidPresetResponse(fmt.Errorf("failed creating/updating presetmap after creating presets: %s", err))
 		}
+		output.PresetMap = presetMap.Name
 	} else {
 		status = http.StatusInternalServerError
 	}
@@ -134,4 +158,17 @@ func (s *TranscodingService) newPreset(r *http.Request) swagger.GizmoJSONRespons
 			status:  status,
 		},
 	}
+}
+
+// getMissingProviders will check what providers already have a preset associated to it
+// and return the missing ones. This method is used when a request to create a new preset
+// is done but we already have a PresetMap stored locally.
+func (s *TranscodingService) getMissingProviders(inputProviders []string, providerMapping map[string]string) []string {
+	var missingProviders []string
+	for _, provider := range inputProviders {
+		if _, ok := providerMapping[provider]; !ok {
+			missingProviders = append(missingProviders, provider)
+		}
+	}
+	return missingProviders
 }

@@ -1,17 +1,42 @@
 language: go
 sudo: false
-install: make testdeps
-script: make swagger coverage
-after_success: bash <(curl -s https://codecov.io/bash)
 addons:
   apt:
     packages:
       - redis-server
-go:
-  - 1.7.3
-  - tip
+      - docker-ce
 services:
   - redis-server
-matrix:
-  allow_failures:
-    - go: tip
+env:
+  global:
+  - GO_FOR_RELEASE=1.11.x
+go:
+  - 1.11.x
+  - tip
+install:
+  - unset GOPATH
+  - make testdeps
+script:
+  - unset GOPATH
+  - export PATH=$PATH:$(go env GOPATH)/bin
+  - make coverage
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
+  - travis-scripts/docker.bash
+deploy:
+  - provider: script
+    skip_cleanup: true
+    script: travis-scripts/deploy.bash dev-stg
+    on:
+      repo: NYTimes/video-transcoding-api
+      branch: master
+      go: 1.11.x
+  - provider: script
+    skip_cleanup: true
+    script: travis-scripts/deploy.bash prd
+    on:
+      repo: NYTimes/video-transcoding-api
+      tags: true
+      go: 1.11.x
+notifications:
+  email: false

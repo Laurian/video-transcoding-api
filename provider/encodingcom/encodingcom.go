@@ -18,6 +18,7 @@ package encodingcom
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path"
 	"regexp"
 	"strconv"
@@ -52,12 +53,12 @@ type encodingComProvider struct {
 	client *encodingcom.Client
 }
 
-func (e *encodingComProvider) Transcode(job *db.Job, transcodeProfile provider.TranscodeProfile) (*provider.JobStatus, error) {
-	formats, err := e.presetsToFormats(job, transcodeProfile)
+func (e *encodingComProvider) Transcode(job *db.Job) (*provider.JobStatus, error) {
+	formats, err := e.presetsToFormats(job)
 	if err != nil {
 		return nil, fmt.Errorf("Error converting presets to formats on Transcode operation: %s", err.Error())
 	}
-	resp, err := e.client.AddMedia([]string{e.sourceMedia(transcodeProfile.SourceMedia)}, formats, e.config.EncodingCom.Region)
+	resp, err := e.client.AddMedia([]string{e.sourceMedia(job.SourceMedia)}, formats, e.config.EncodingCom.Region)
 	if err != nil {
 		return nil, fmt.Errorf("Error making AddMedia request for Transcode operation: %s", err.Error())
 	}
@@ -93,6 +94,7 @@ func (e *encodingComProvider) presetToFormat(preset db.Preset) encodingcom.Forma
 	format := encodingcom.Format{
 		Output:      []string{preset.Container},
 		Destination: []string{"ftp://username:password@yourftphost.com/video/encoded/test.flv"},
+		TwoPass:     encodingcom.YesNoBoolean(preset.TwoPass),
 	}
 	if preset.Container == "m3u8" {
 		format.Output = []string{hlsOutput}
@@ -101,7 +103,7 @@ func (e *encodingComProvider) presetToFormat(preset db.Preset) encodingcom.Forma
 	} else {
 		format.Bitrate = kregexp.ReplaceAllString(preset.Video.Bitrate, "k")
 		format.AudioBitrate = kregexp.ReplaceAllString(preset.Audio.Bitrate, "k")
-		format.Profile = preset.Profile
+		format.Profile = preset.Video.Profile
 		format.Gop = "cgop"
 		format.Keyframe = []string{preset.Video.GopSize}
 		format.AudioVolume = 100
@@ -114,7 +116,7 @@ func (e *encodingComProvider) presetToFormat(preset db.Preset) encodingcom.Forma
 
 func (e *encodingComProvider) buildStream(preset db.Preset) []encodingcom.Stream {
 	stream := encodingcom.Stream{
-		Profile:      preset.Profile,
+		Profile:      preset.Video.Profile,
 		Keyframe:     preset.Video.GopSize,
 		Bitrate:      kregexp.ReplaceAllString(preset.Video.Bitrate, "k"),
 		AudioBitrate: kregexp.ReplaceAllString(preset.Audio.Bitrate, "k"),
@@ -171,10 +173,10 @@ func (e *encodingComProvider) buildDestination(baseDestination, jobID, fileName 
 	return outputPath + "/" + path.Join(jobID, fileName)
 }
 
-func (e *encodingComProvider) presetsToFormats(job *db.Job, transcodeProfile provider.TranscodeProfile) ([]encodingcom.Format, error) {
+func (e *encodingComProvider) presetsToFormats(job *db.Job) ([]encodingcom.Format, error) {
 	streams := []encodingcom.Stream{}
-	formats := make([]encodingcom.Format, 0, len(transcodeProfile.Outputs))
-	for _, output := range transcodeProfile.Outputs {
+	formats := make([]encodingcom.Format, 0, len(job.Outputs))
+	for _, output := range job.Outputs {
 		presetName := output.Preset.Name
 		presetID, ok := output.Preset.ProviderMapping[Name]
 		if !ok {
@@ -202,8 +204,8 @@ func (e *encodingComProvider) presetsToFormats(job *db.Job, transcodeProfile pro
 		falseValue := encodingcom.YesNoBoolean(false)
 		format := encodingcom.Format{
 			Output:          []string{hlsOutput},
-			Destination:     e.getDestinations(job.ID, transcodeProfile.StreamingParams.PlaylistFileName),
-			SegmentDuration: transcodeProfile.StreamingParams.SegmentDuration,
+			Destination:     e.getDestinations(job.ID, job.StreamingParams.PlaylistFileName),
+			SegmentDuration: job.StreamingParams.SegmentDuration,
 			Stream:          streams,
 			PackFiles:       &falseValue,
 		}
@@ -220,10 +222,13 @@ func (e *encodingComProvider) JobStatus(job *db.Job) (*provider.JobStatus, error
 	if len(resp) < 1 {
 		return nil, errors.New("invalid value returned by the Encoding.com API: []")
 	}
-	var sourceInfo provider.SourceInfo
+	var (
+		sourceInfo provider.SourceInfo
+		mediaInfo  *encodingcom.MediaInfo
+	)
 	status := e.statusMap(resp[0].MediaStatus)
 	if status == provider.StatusFinished {
-		sourceInfo, err = e.sourceInfo(job.ProviderJobID)
+		sourceInfo, mediaInfo, err = e.sourceInfo(job.ProviderJobID)
 		if err != nil {
 			return nil, err
 		}
@@ -243,22 +248,22 @@ func (e *encodingComProvider) JobStatus(job *db.Job) (*provider.JobStatus, error
 		},
 		Output: provider.JobOutput{
 			Destination: e.getOutputDestination(job),
-			Files:       e.getOutputDestinationStatus(resp),
+			Files:       e.getOutputDestinationStatus(resp, mediaInfo),
 		},
 		SourceInfo: sourceInfo,
 	}, nil
 }
 
-func (e *encodingComProvider) sourceInfo(id string) (provider.SourceInfo, error) {
+func (e *encodingComProvider) sourceInfo(id string) (provider.SourceInfo, *encodingcom.MediaInfo, error) {
 	var sourceInfo provider.SourceInfo
 	info, err := e.client.GetMediaInfo(id)
 	if err != nil {
-		return sourceInfo, err
+		return sourceInfo, nil, err
 	}
 	sourceInfo.Width, sourceInfo.Height, err = e.parseSize(info.Size)
 	sourceInfo.Duration = info.Duration
 	sourceInfo.VideoCodec = info.VideoCodec
-	return sourceInfo, err
+	return sourceInfo, info, err
 }
 
 func (e *encodingComProvider) parseSize(size string) (width int64, height int64, err error) {
@@ -277,6 +282,32 @@ func (e *encodingComProvider) parseSize(size string) (width int64, height int64,
 	return width, height, nil
 }
 
+func (e *encodingComProvider) adjustSize(reportedSize string, sourceInfo *encodingcom.MediaInfo) (width int64, height int64, err error) {
+	width, height, err = e.parseSize(reportedSize)
+	if err != nil || sourceInfo == nil {
+		return width, height, err
+	}
+	if width != 0 && height != 0 {
+		return width, height, nil
+	}
+	sourceWidth, sourceHeight, err := e.parseSize(sourceInfo.Size)
+	if err != nil {
+		return 0, 0, err
+	}
+	if (sourceInfo.Rotation/90)%2 == 1 {
+		sourceWidth, sourceHeight = sourceHeight, sourceWidth
+	}
+	if width == 0 {
+		ratio := float64(sourceWidth) / float64(sourceHeight)
+		width = int64(math.Floor(float64(height)*ratio + .5))
+	}
+	if height == 0 {
+		ratio := float64(sourceHeight) / float64(sourceWidth)
+		height = int64(math.Floor(float64(width)*ratio + .5))
+	}
+	return width, height, nil
+}
+
 func (e *encodingComProvider) getFormatStatus(status []encodingcom.StatusResponse) []string {
 	formatStatusList := []string{}
 	formats := status[0].Formats
@@ -286,7 +317,7 @@ func (e *encodingComProvider) getFormatStatus(status []encodingcom.StatusRespons
 	return formatStatusList
 }
 
-func (e *encodingComProvider) getOutputDestinationStatus(status []encodingcom.StatusResponse) []provider.OutputFile {
+func (e *encodingComProvider) getOutputDestinationStatus(status []encodingcom.StatusResponse, sourceInfo *encodingcom.MediaInfo) []provider.OutputFile {
 	var outputFiles []provider.OutputFile
 	formats := status[0].Formats
 	for _, formatStatus := range formats {
@@ -309,12 +340,14 @@ func (e *encodingComProvider) getOutputDestinationStatus(status []encodingcom.St
 			if container == hlsOutput {
 				container = "m3u8"
 			}
+			fileSize, _ := strconv.ParseInt(formatStatus.FileSize, 10, 64)
 			file := provider.OutputFile{
 				Path:       e.destinationMedia(destinationName),
 				Container:  container,
 				VideoCodec: formatStatus.VideoCodec,
+				FileSize:   fileSize,
 			}
-			file.Width, file.Height, _ = e.parseSize(formatStatus.Size)
+			file.Width, file.Height, _ = e.adjustSize(formatStatus.Size, sourceInfo)
 			outputFiles = append(outputFiles, file)
 		}
 	}

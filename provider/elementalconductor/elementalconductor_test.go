@@ -45,8 +45,8 @@ func TestElementalConductorFactory(t *testing.T) {
 	if !reflect.DeepEqual(econductorProvider.client, expected) {
 		t.Errorf("Factory: wrong client returned. Want %#v. Got %#v.", expected, econductorProvider.client)
 	}
-	if !reflect.DeepEqual(*econductorProvider.config, cfg) {
-		t.Errorf("Factory: wrong config returned. Want %#v. Got %#v.", cfg, *econductorProvider.config)
+	if !reflect.DeepEqual(*econductorProvider.config, *cfg.ElementalConductor) {
+		t.Errorf("Factory: wrong config returned. Want %#v. Got %#v.", *cfg.ElementalConductor, *econductorProvider.config)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestElementalNewJob(t *testing.T) {
 		t.Fatal("Could not type assert test provider to elementalConductorProvider")
 	}
 	source := "http://some.nice/video.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.webm",
 			Preset: db.PresetMap{
@@ -130,12 +130,12 @@ func TestElementalNewJob(t *testing.T) {
 		},
 	}
 
-	transcodeProfile := provider.TranscodeProfile{
+	newJob, err := presetProvider.newJob(&db.Job{
+		ID:              "job-1",
 		SourceMedia:     source,
 		Outputs:         outputs,
-		StreamingParams: provider.StreamingParams{},
-	}
-	newJob, err := presetProvider.newJob(&db.Job{ID: "job-1"}, transcodeProfile)
+		StreamingParams: db.StreamingParams{},
+	})
 	if err != nil {
 		t.Error(err)
 	}
@@ -248,7 +248,7 @@ func TestElementalNewJobAdaptiveStreaming(t *testing.T) {
 		t.Fatal("Could not type assert test provider to elementalConductorProvider")
 	}
 	source := "http://some.nice/video.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_hls_360p/video.m3u8",
 			Preset: db.PresetMap{
@@ -282,16 +282,16 @@ func TestElementalNewJobAdaptiveStreaming(t *testing.T) {
 			},
 		},
 	}
-	transcodeProfile := provider.TranscodeProfile{
+	newJob, err := presetProvider.newJob(&db.Job{
+		ID:          "job-2",
 		SourceMedia: source,
 		Outputs:     outputs,
-		StreamingParams: provider.StreamingParams{
+		StreamingParams: db.StreamingParams{
 			Protocol:         "hls",
 			SegmentDuration:  3,
 			PlaylistFileName: "hls/master.m3u8",
 		},
-	}
-	newJob, err := presetProvider.newJob(&db.Job{ID: "job-2"}, transcodeProfile)
+	})
 	if err != nil {
 		t.Error(err)
 	}
@@ -393,7 +393,7 @@ func TestElementalNewJobAdaptiveAndNonAdaptiveStreaming(t *testing.T) {
 		t.Fatal("Could not type assert test provider to elementalConductorProvider")
 	}
 	source := "http://some.nice/video.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			FileName: "output_720p.webm",
 			Preset: db.PresetMap{
@@ -451,16 +451,16 @@ func TestElementalNewJobAdaptiveAndNonAdaptiveStreaming(t *testing.T) {
 			},
 		},
 	}
-	transcodeProfile := provider.TranscodeProfile{
+	newJob, err := presetProvider.newJob(&db.Job{
+		ID:          "job-3",
 		SourceMedia: source,
 		Outputs:     outputs,
-		StreamingParams: provider.StreamingParams{
+		StreamingParams: db.StreamingParams{
 			Protocol:         "hls",
 			SegmentDuration:  3,
 			PlaylistFileName: "output_hls/index.m3u8",
 		},
-	}
-	newJob, err := presetProvider.newJob(&db.Job{ID: "job-3"}, transcodeProfile)
+	})
 	if err != nil {
 		t.Error(err)
 	}
@@ -628,7 +628,7 @@ func TestElementalNewJobPresetNotFound(t *testing.T) {
 		t.Fatal("Could not type assert test provider to elementalConductorProvider")
 	}
 	source := "http://some.nice/video.mov"
-	outputs := []provider.TranscodeOutput{
+	outputs := []db.TranscodeOutput{
 		{
 			Preset: db.PresetMap{
 				Name:            "webm_720p",
@@ -637,8 +637,7 @@ func TestElementalNewJobPresetNotFound(t *testing.T) {
 			},
 		},
 	}
-	transcodeProfile := provider.TranscodeProfile{SourceMedia: source, Outputs: outputs}
-	newJob, err := presetProvider.newJob(&db.Job{ID: "job-2"}, transcodeProfile)
+	newJob, err := presetProvider.newJob(&db.Job{ID: "job-2", SourceMedia: source, Outputs: outputs})
 	if err != provider.ErrPresetMapNotFound {
 		t.Errorf("Wrong error returned. Want %#v. Got %#v", provider.ErrPresetMapNotFound, err)
 	}
@@ -687,7 +686,7 @@ func TestJobStatusOutputDestination(t *testing.T) {
 		t.Fatal("Could not type assert test provider to elementalConductorProvider")
 	}
 	for _, test := range tests {
-		provider.config.ElementalConductor.Destination = test.destinationCfg
+		provider.config.Destination = test.destinationCfg
 		got := provider.getOutputDestination(&test.job)
 		if got != test.expected {
 			t.Errorf("Wrong output destination. Want %q. Got %q", test.expected, got)
@@ -720,16 +719,14 @@ func TestJobStatusMap(t *testing.T) {
 }
 
 func TestJobStatus(t *testing.T) {
-	elementalConductorConfig := config.Config{
-		ElementalConductor: &config.ElementalConductor{
-			Host:            "https://mybucket.s3.amazonaws.com/destination-dir/",
-			UserLogin:       "myuser",
-			APIKey:          "elemental-api-key",
-			AuthExpires:     30,
-			AccessKeyID:     "aws-access-key",
-			SecretAccessKey: "aws-secret-key",
-			Destination:     "s3://destination",
-		},
+	elementalConductorConfig := config.ElementalConductor{
+		Host:            "https://mybucket.s3.amazonaws.com/destination-dir/",
+		UserLogin:       "myuser",
+		APIKey:          "elemental-api-key",
+		AuthExpires:     30,
+		AccessKeyID:     "aws-access-key",
+		SecretAccessKey: "aws-secret-key",
+		Destination:     "s3://destination",
 	}
 	submitted := elementalconductor.DateTime{Time: time.Now().UTC()}
 	client := newFakeElementalConductorClient(&elementalConductorConfig)
@@ -899,16 +896,14 @@ func TestJobStatus(t *testing.T) {
 }
 
 func TestJobStatusNoDuration(t *testing.T) {
-	elementalConductorConfig := config.Config{
-		ElementalConductor: &config.ElementalConductor{
-			Host:            "https://mybucket.s3.amazonaws.com/destination-dir/",
-			UserLogin:       "myuser",
-			APIKey:          "elemental-api-key",
-			AuthExpires:     30,
-			AccessKeyID:     "aws-access-key",
-			SecretAccessKey: "aws-secret-key",
-			Destination:     "s3://destination",
-		},
+	elementalConductorConfig := config.ElementalConductor{
+		Host:            "https://mybucket.s3.amazonaws.com/destination-dir/",
+		UserLogin:       "myuser",
+		APIKey:          "elemental-api-key",
+		AuthExpires:     30,
+		AccessKeyID:     "aws-access-key",
+		SecretAccessKey: "aws-secret-key",
+		Destination:     "s3://destination",
 	}
 	submitted := elementalconductor.DateTime{Time: time.Now().UTC()}
 	client := newFakeElementalConductorClient(&elementalConductorConfig)

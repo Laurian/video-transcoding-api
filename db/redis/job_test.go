@@ -2,6 +2,7 @@ package redis
 
 import (
 	"math"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -10,7 +11,8 @@ import (
 	"github.com/NYTimes/video-transcoding-api/config"
 	"github.com/NYTimes/video-transcoding-api/db"
 	"github.com/NYTimes/video-transcoding-api/db/redis/storage"
-	"gopkg.in/redis.v4"
+	"github.com/go-redis/redis"
+	"github.com/kr/pretty"
 )
 
 func TestCreateJob(t *testing.T) {
@@ -26,8 +28,13 @@ func TestCreateJob(t *testing.T) {
 	}
 	job := db.Job{
 		ID:              "job1",
+		SourceMedia:     "http://nyt.net/source_here.mp4",
 		ProviderName:    "encoding.com",
-		StreamingParams: db.StreamingParams{SegmentDuration: 10, Protocol: "hls"},
+		StreamingParams: db.StreamingParams{SegmentDuration: 10, Protocol: "hls", PlaylistFileName: "hls/playlist.m3u8"},
+		Outputs: []db.TranscodeOutput{
+			{Preset: db.PresetMap{Name: "preset-1"}, FileName: "output1.m3u8"},
+			{Preset: db.PresetMap{Name: "preset-2"}, FileName: "output2.m3u8"},
+		},
 	}
 	err = repo.CreateJob(&job)
 	if err != nil {
@@ -47,14 +54,18 @@ func TestCreateJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := map[string]string{
-		"providerName":                    "encoding.com",
-		"providerJobID":                   "",
-		"streamingparams_segmentDuration": "10",
-		"streamingparams_protocol":        "hls",
-		"creationTime":                    creationTime.Format(time.RFC3339Nano),
+		"source":                           "http://nyt.net/source_here.mp4",
+		"jobID":                            "job1",
+		"providerName":                     "encoding.com",
+		"providerJobID":                    "",
+		"streamingparams_segmentDuration":  "10",
+		"streamingparams_protocol":         "hls",
+		"streamingparams_playlistFileName": "hls/playlist.m3u8",
+		"creationTime":                     creationTime.Format(time.RFC3339Nano),
 	}
 	if !reflect.DeepEqual(items, expected) {
-		t.Errorf("Wrong job hash returned from Redis. Want %#v. Got %#v.", expected, items)
+		pretty.Fdiff(os.Stderr, expected, items)
+		t.Errorf("Wrong job hash returned from Redis. Want\n %#v.\n Got\n %#v.", expected, items)
 	}
 	setEntries, err := client.ZRange(jobsSetKey, 0, -1).Result()
 	if err != nil {
@@ -62,6 +73,7 @@ func TestCreateJob(t *testing.T) {
 	}
 	expectedSetEntries := []string{job.ID}
 	if !reflect.DeepEqual(setEntries, expectedSetEntries) {
+		pretty.Fdiff(os.Stderr, expectedSetEntries, setEntries)
 		t.Errorf("Wrong job set returned from Redis. Want %#v. Got %#v.", expectedSetEntries, setEntries)
 	}
 }
@@ -366,7 +378,7 @@ func TestListJobsFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	jobs := []db.Job{
 		{
 			ID:            "job-1",
@@ -410,7 +422,7 @@ func TestListJobsFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(gotJobs, expectedJobs) {
-		t.Errorf("ListJobs({}): wrong list returned. Want %#v. Got %#v", expectedJobs, gotJobs)
+		t.Errorf("ListJobs({}): wrong list returned\nWant %#v\nGot  %#v", expectedJobs, gotJobs)
 	}
 }
 
@@ -425,7 +437,7 @@ func TestListJobsFilteringAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	jobs := []db.Job{
 		{
 			ID:            "job-1",

@@ -76,6 +76,7 @@ func TestSave(t *testing.T) {
 		ID:        "some-id",
 		Name:      "gopher",
 		Age:       29,
+		Weight:    150.03,
 		BirthTime: time.Now().Add(-29 * 365 * 24 * time.Hour),
 		Address: Address{
 			Data:   map[string]string{"first_line": "secret"},
@@ -104,6 +105,7 @@ func TestSave(t *testing.T) {
 	expected := map[string]string{
 		"name":                    "gopher",
 		"age":                     "29",
+		"weight":                  "150.03",
 		"birth":                   person.BirthTime.Format(time.RFC3339Nano),
 		"colors":                  "",
 		"address_city_name":       "nyc",
@@ -121,6 +123,7 @@ func TestSavePointer(t *testing.T) {
 		ID:              "some-id",
 		Name:            "gopher",
 		Age:             29,
+		Weight:          153.2993,
 		BirthTime:       time.Now().Add(-29 * 365 * 24 * time.Hour),
 		PreferredColors: []string{"red", "blue", "yellow"},
 		Address: Address{
@@ -150,6 +153,7 @@ func TestSavePointer(t *testing.T) {
 	expected := map[string]string{
 		"name":                    "gopher",
 		"age":                     "29",
+		"weight":                  "153.2993",
 		"birth":                   person.BirthTime.Format(time.RFC3339Nano),
 		"colors":                  "red%%%blue%%%yellow",
 		"address_city_name":       "nyc",
@@ -229,6 +233,101 @@ func TestSaveErrors(t *testing.T) {
 	}
 }
 
+func TestFieldMap(t *testing.T) {
+	storage, err := NewStorage(&Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tests = []struct {
+		description string
+		hash        interface{}
+		expected    map[string]interface{}
+	}{
+		{
+			"Job",
+			Job{
+				ID:            "job1",
+				ProviderJobID: "123abc",
+				SourceMedia:   "http://nyt.net/source_here.mp4",
+				ProviderName:  "encoding.com",
+				StreamingParams: StreamingParams{
+					SegmentDuration:  10,
+					Protocol:         "hls",
+					PlaylistFileName: "hls/playlist.m3u8",
+				},
+				Outputs: []TranscodeOutput{
+					{Preset: PresetMap{Name: "preset-1"}, FileName: "output1.m3u8"},
+					{Preset: PresetMap{Name: "preset-2"}, FileName: "output2.m3u8"},
+				},
+			},
+			map[string]interface{}{
+				"source":                           "http://nyt.net/source_here.mp4",
+				"jobID":                            "job1",
+				"providerName":                     "encoding.com",
+				"providerJobID":                    "123abc",
+				"streamingparams_segmentDuration":  "10",
+				"streamingparams_protocol":         "hls",
+				"streamingparams_playlistFileName": "hls/playlist.m3u8",
+				"creationTime":                     "0001-01-01T00:00:00Z",
+			},
+		},
+		{
+			"LocalPreset",
+			LocalPreset{
+				Name: "this-is-a-localpreset",
+				Preset: Preset{
+					Name:        "test",
+					Description: "test preset",
+					Container:   "mp4",
+					RateControl: "VBR",
+					Video: VideoPreset{
+						Profile:       "main",
+						ProfileLevel:  "3.1",
+						Width:         "640",
+						Height:        "360",
+						Codec:         "h264",
+						Bitrate:       "1000",
+						GopSize:       "90",
+						GopMode:       "fixed",
+						InterlaceMode: "progressive",
+					},
+					Audio: AudioPreset{
+						Codec:   "aac",
+						Bitrate: "64000",
+					},
+				},
+			},
+			map[string]interface{}{
+				"preset_name":                "test",
+				"preset_description":         "test preset",
+				"preset_container":           "mp4",
+				"preset_ratecontrol":         "VBR",
+				"preset_video_profilelevel":  "3.1",
+				"preset_video_profile":       "main",
+				"preset_video_gopmode":       "fixed",
+				"preset_video_bitrate":       "1000",
+				"preset_video_interlacemode": "progressive",
+				"preset_video_codec":         "h264",
+				"preset_video_gopsize":       "90",
+				"preset_video_height":        "360",
+				"preset_video_width":         "640",
+				"preset_audio_bitrate":       "64000",
+				"preset_audio_codec":         "aac",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		result, err := storage.FieldMap(test.hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(result, test.expected) {
+			t.Errorf("Wrong FieldMap: %s: Want %#v. Got %#v.", test.description, result, test.expected)
+		}
+	}
+}
+
 func TestLoadStruct(t *testing.T) {
 	storage, err := NewStorage(&Config{})
 	if err != nil {
@@ -236,10 +335,11 @@ func TestLoadStruct(t *testing.T) {
 	}
 	client := storage.RedisClient()
 	defer client.Close()
-	date := time.Now().UTC().Add(-29 * 365 * 24 * time.Hour)
+	date := time.Now().UTC().Add(-29 * 365 * 24 * time.Hour).Truncate(time.Millisecond)
 	err = storage.Save("test-key", map[string]string{
 		"name":              "Gopher",
 		"age":               "29",
+		"weight":            "159.332",
 		"birth":             date.Format(time.RFC3339Nano),
 		"colors":            "red%%%green%%%blue%%%black",
 		"address_number":    "-2",
@@ -261,6 +361,7 @@ func TestLoadStruct(t *testing.T) {
 	expectedPerson.Address.Number = -2
 	expectedPerson.Name = "Gopher"
 	expectedPerson.Age = 29
+	expectedPerson.Weight = 159.332
 	expectedPerson.BirthTime = date
 	expectedPerson.PreferredColors = []string{"red", "green", "blue", "black"}
 	err = storage.Load("test-key", &person)
@@ -268,7 +369,7 @@ func TestLoadStruct(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(person, expectedPerson) {
-		t.Errorf("Didn't load data to struct. Want %#v. Got %#v.", expectedPerson, person)
+		t.Errorf("Didn't load data to struct\nwant %#v\ngot  %#v", expectedPerson, person)
 	}
 }
 

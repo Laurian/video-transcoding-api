@@ -42,7 +42,7 @@ func init() {
 }
 
 type elementalConductorProvider struct {
-	config *config.Config
+	config *config.ElementalConductor
 	client clientInterface
 }
 
@@ -57,8 +57,8 @@ func (p *elementalConductorProvider) CreatePreset(preset db.Preset) (string, err
 	elementalConductorPreset.Name = preset.Name
 	elementalConductorPreset.Description = preset.Description
 	elementalConductorPreset.Container = preset.Container
-	elementalConductorPreset.Profile = preset.Profile
-	elementalConductorPreset.ProfileLevel = preset.ProfileLevel
+	elementalConductorPreset.Profile = preset.Video.Profile
+	elementalConductorPreset.ProfileLevel = preset.Video.ProfileLevel
 	elementalConductorPreset.RateControl = preset.RateControl
 	elementalConductorPreset.Width = preset.Video.Width
 	elementalConductorPreset.Height = preset.Video.Height
@@ -86,8 +86,8 @@ func (p *elementalConductorProvider) GetPreset(presetID string) (interface{}, er
 	return preset, err
 }
 
-func (p *elementalConductorProvider) Transcode(job *db.Job, transcodeProfile provider.TranscodeProfile) (*provider.JobStatus, error) {
-	newJob, err := p.newJob(job, transcodeProfile)
+func (p *elementalConductorProvider) Transcode(job *db.Job) (*provider.JobStatus, error) {
+	newJob, err := p.newJob(job)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (p *elementalConductorProvider) JobStatus(job *db.Job) (*provider.JobStatus
 }
 
 func (p *elementalConductorProvider) getOutputDestination(job *db.Job) string {
-	return strings.TrimRight(p.config.ElementalConductor.Destination, "/") + "/" + job.ID
+	return strings.TrimRight(p.config.Destination, "/") + "/" + job.ID
 }
 
 func (p *elementalConductorProvider) getOutputFiles(job *elementalconductor.Job) []provider.OutputFile {
@@ -196,13 +196,13 @@ func (p *elementalConductorProvider) statusMap(elementalConductorStatus string) 
 	}
 }
 
-func (p *elementalConductorProvider) buildOutputGroupAndStreamAssemblies(outputLocation elementalconductor.Location, transcodeProfile provider.TranscodeProfile) ([]elementalconductor.OutputGroup, []elementalconductor.StreamAssembly, error) {
+func (p *elementalConductorProvider) buildOutputGroupAndStreamAssemblies(outputLocation elementalconductor.Location, job db.Job) ([]elementalconductor.OutputGroup, []elementalconductor.StreamAssembly, error) {
 	var streamingOutputList []elementalconductor.Output
 	var streamAssemblyList []elementalconductor.StreamAssembly
 	var outputGroupList []elementalconductor.OutputGroup
 	var outputGroupOrder int
 	var streamingGroupOrder int
-	for index, output := range transcodeProfile.Outputs {
+	for index, output := range job.Outputs {
 		indexString := strconv.Itoa(index)
 		streamAssemblyName := "stream_" + indexString
 		out := elementalconductor.Output{StreamAssemblyName: streamAssemblyName}
@@ -244,7 +244,7 @@ func (p *elementalConductorProvider) buildOutputGroupAndStreamAssemblies(outputL
 		streamAssemblyList = append(streamAssemblyList, streamAssembly)
 	}
 	if len(streamingOutputList) > 0 {
-		playlistFileName := transcodeProfile.StreamingParams.PlaylistFileName
+		playlistFileName := job.StreamingParams.PlaylistFileName
 		location := outputLocation
 		location.URI += "/" + strings.TrimRight(playlistFileName, filepath.Ext(playlistFileName))
 		outputGroupOrder++
@@ -252,7 +252,7 @@ func (p *elementalConductorProvider) buildOutputGroupAndStreamAssemblies(outputL
 			Order: outputGroupOrder,
 			AppleLiveGroupSettings: &elementalconductor.AppleLiveGroupSettings{
 				Destination:     &location,
-				SegmentDuration: transcodeProfile.StreamingParams.SegmentDuration,
+				SegmentDuration: job.StreamingParams.SegmentDuration,
 				EmitSingleFile:  true,
 			},
 			Type:   elementalconductor.AppleLiveOutputGroupType,
@@ -264,19 +264,19 @@ func (p *elementalConductorProvider) buildOutputGroupAndStreamAssemblies(outputL
 }
 
 // newJob constructs a job spec from the given source and presets
-func (p *elementalConductorProvider) newJob(job *db.Job, transcodeProfile provider.TranscodeProfile) (*elementalconductor.Job, error) {
+func (p *elementalConductorProvider) newJob(job *db.Job) (*elementalconductor.Job, error) {
 	inputLocation := elementalconductor.Location{
-		URI:      transcodeProfile.SourceMedia,
-		Username: p.client.GetAccessKeyID(),
-		Password: p.client.GetSecretAccessKey(),
+		URI:      job.SourceMedia,
+		Username: p.config.AccessKeyID,
+		Password: p.config.SecretAccessKey,
 	}
-	baseLocation := strings.TrimRight(p.config.ElementalConductor.Destination, "/")
+	baseLocation := strings.TrimRight(p.config.Destination, "/")
 	outputLocation := elementalconductor.Location{
 		URI:      baseLocation + "/" + job.ID,
-		Username: p.client.GetAccessKeyID(),
-		Password: p.client.GetSecretAccessKey(),
+		Username: p.config.AccessKeyID,
+		Password: p.config.SecretAccessKey,
 	}
-	outputGroup, streamAssemblyList, err := p.buildOutputGroupAndStreamAssemblies(outputLocation, transcodeProfile)
+	outputGroup, streamAssemblyList, err := p.buildOutputGroupAndStreamAssemblies(outputLocation, *job)
 	if err != nil {
 		return nil, err
 	}
@@ -342,5 +342,5 @@ func elementalConductorFactory(cfg *config.Config) (provider.TranscodingProvider
 		cfg.ElementalConductor.SecretAccessKey,
 		cfg.ElementalConductor.Destination,
 	)
-	return &elementalConductorProvider{client: client, config: cfg}, nil
+	return &elementalConductorProvider{client: client, config: cfg.ElementalConductor}, nil
 }
